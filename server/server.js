@@ -24,6 +24,9 @@ app.post('/api/citizen-report', w(async (req, res) => { const b = req.body; if (
   const r = await ingest({ sourceName: 'Citizen Report', sourceType: 'Citizen', reportText: b.description, eventType: b.eventType, location: { city: b.city, state: b.state, latitude: b.latitude, longitude: b.longitude }, media: b.mediaUrl ? [b.mediaUrl] : [], isDemo: false });
   await R.findByIdAndUpdate(r._id, { verificationStatus: 'Under Review', manual: true }); await M.CitizenReport.create({ ...b, reportId: r._id }); res.status(201).json({ id: r._id, status: 'Under Review' }); }));
 app.get('/api/live-status', (_, res) => res.json({ weather: !!process.env.OPENWEATHER_KEY, news: !!process.env.NEWS_API_KEY }));
+app.get('/api/weather-here', w(async (req, res) => { const { lat, lon } = req.query; if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
+  if (!process.env.OPENWEATHER_KEY) return res.status(400).json({ error: 'OPENWEATHER_KEY not configured on the server.' });
+  res.json(await EXT.fetchWeatherAt(lat, lon)); }));
 app.post('/api/refresh-live', w(async (req, res) => res.json(await EXT.refreshLive(ingest))));
 app.get('/api/events', w(async (_, res) => res.json(await M.WeatherEvent.find().sort('-confidence'))));
 app.get('/api/sources', w(async (_, res) => res.json(await M.Source.find())));

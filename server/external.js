@@ -55,4 +55,12 @@ async function refreshLive(ingest) {
   return { created, errors };
 }
 
-module.exports = { fetchWeather, fetchNews, refreshLive, CITIES };
+async function fetchWeatherAt(lat, lon) {
+  const key = process.env.OPENWEATHER_KEY; if (!key) return null;
+  const r = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${key}&units=metric`);
+  if (!r.ok) throw new Error(`OpenWeatherMap ${r.status}`);
+  const d = await r.json();
+  return { place: d.name || 'your location', condition: d.weather?.[0]?.main, description: d.weather?.[0]?.description, temp: Math.round(d.main?.temp ?? 0), feelsLike: Math.round(d.main?.feels_like ?? 0), humidity: d.main?.humidity, wind: d.wind?.speed, rain: (d.rain && (d.rain['1h'] || d.rain['3h'])) || 0 };
+}
+
+module.exports = { fetchWeather, fetchWeatherAt, fetchNews, refreshLive, CITIES };
