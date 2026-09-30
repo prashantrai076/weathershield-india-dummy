@@ -50,70 +50,138 @@ app.post(
     });
   }),
 );
-app.get('/api/reports', w(async (req, res) => {
-  const q = {};
+app.get(
+  "/api/reports",
+  w(async (req, res) => {
+    const q = {};
 
-  const {
-    state,
-    city,
-    event,
-    status,
-    source,
-    search,
-    from,
-    to,
-    page = 1,
-    limit = 20,
-    sort = '-timestamp'
-  } = req.query;
+    const {
+      state,
+      city,
+      event,
+      status,
+      source,
+      search,
+      from,
+      to,
+      page = 1,
+      limit = 20,
+      sort = "-timestamp",
+    } = req.query;
 
-  if (state) q['location.state'] = state;
-  if (city) q['location.city'] = city;
-  if (event) q.eventType = event;
-  if (status) q.verificationStatus = status;
-  if (source) q.sourceType = source;
+    if (state) q["location.state"] = state;
+    if (city) q["location.city"] = city;
+    if (event) q.eventType = event;
+    if (status) q.verificationStatus = status;
+    if (source) q.sourceType = source;
 
-  if (search) {
-    const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    q.reportText = new RegExp(safe, 'i');
-  }
-
-  // Date/time filtering
-  if (from || to) {
-    q.timestamp = {};
-
-    if (from) {
-      q.timestamp.$gte = new Date(from);
+    if (search) {
+      const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      q.reportText = new RegExp(safe, "i");
     }
 
-    if (to) {
-      const end = new Date(to);
+    // Date/time filtering
+    if (from || to) {
+      q.timestamp = {};
 
-      
-      end.setHours(23, 59, 59, 999);
+      if (from) {
+        q.timestamp.$gte = new Date(from);
+      }
 
-      q.timestamp.$lte = end;
+      if (to) {
+        const end = new Date(to);
+
+        end.setHours(23, 59, 59, 999);
+
+        q.timestamp.$lte = end;
+      }
     }
-  }
 
-  const currentPage = Math.max(Number(page) || 1, 1);
-  const perPage = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const currentPage = Math.max(Number(page) || 1, 1);
+    const perPage = Math.min(Math.max(Number(limit) || 20, 1), 100);
 
-  const [items, total] = await Promise.all([
-    R.find(q)
-      .sort(sort)
-      .skip((currentPage - 1) * perPage)
-      .limit(perPage),
+    const [items, total] = await Promise.all([
+      R.find(q)
+        .sort(sort)
+        .skip((currentPage - 1) * perPage)
+        .limit(perPage),
 
-    R.countDocuments(q)
+      R.countDocuments(q),
+    ]);
+
+    res.json({
+      items,
+      total,
+      page: currentPage,
+      limit: perPage,
+      pages: Math.ceil(total / perPage),
+    });
+  }),
+);
+app.get('/api/analytics', w(async (req, res) => {
+  const [
+    total,
+    byEvent,
+    bySource,
+    byStatus
+  ] = await Promise.all([
+    R.countDocuments(),
+
+    R.aggregate([
+      {
+        $group: {
+          _id: '$eventType',
+          n: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { n: -1 }
+      }
+    ]),
+
+    R.aggregate([
+      {
+        $group: {
+          _id: '$sourceType',
+          n: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { n: -1 }
+      }
+    ]),
+
+    R.aggregate([
+      {
+        $group: {
+          _id: '$verificationStatus',
+          n: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { n: -1 }
+      }
+    ])
   ]);
 
+  const statusCounts = Object.fromEntries(
+    byStatus.map((x) => [x._id, x.n])
+  );
+
+  const verified = statusCounts.Verified || 0;
+
+  const verificationRate =
+    total === 0
+      ? 0
+      : Math.round((verified / total) * 100);
+
   res.json({
-    items,
     total,
-    page: currentPage,
-    limit: perPage,
-    pages: Math.ceil(total / perPage)
+    verified,
+    verificationRate,
+    byEvent,
+    bySource,
+    byStatus
   });
 }));
 app.get(
@@ -318,26 +386,7 @@ app.get(
     res.json(await M.Verification.find().sort("-createdAt").limit(50)),
   ),
 );
-app.get(
-  "/api/analytics",
-  w(async (_, res) => {
-    const g = (f) =>
-      R.aggregate([
-        { $group: { _id: f, n: { $sum: 1 } } },
-        { $sort: { n: -1 } },
-      ]);
-    const [byState, byEvent, byStatus, bySource, total, sources] =
-      await Promise.all([
-        g("$location.state"),
-        g("$eventType"),
-        g("$verificationStatus"),
-        g("$sourceName"),
-        R.countDocuments(),
-        M.Source.countDocuments(),
-      ]);
-    res.json({ total, sources, byState, byEvent, byStatus, bySource });
-  }),
-);
+
 const distPath = path.join(__dirname, "..", "client", "dist");
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
